@@ -27,7 +27,6 @@ DEFAULTS = {
     "messages": [],
     "conversation_count": 0,
     "final_feeling": None,
-    "user_input": "",
 }
 
 for key, value in DEFAULTS.items():
@@ -41,7 +40,6 @@ for key, value in DEFAULTS.items():
 
 @st.cache_resource
 def load_emotion_model():
-
     from transformers import pipeline
 
     return pipeline(
@@ -99,7 +97,7 @@ def clean_text(text):
 
 
 # ============================================================
-# KEYWORD DETECTION
+# KEYWORD HELPER
 # ============================================================
 
 def contains_any(text, words):
@@ -107,7 +105,6 @@ def contains_any(text, words):
     text = text.lower()
 
     for word in words:
-
         if word in text:
             return True
 
@@ -188,9 +185,9 @@ def generate_response(user_text, emotion, history):
     ):
 
         return (
-            "That sounds difficult, especially when friends are "
-            "involved. Do you think they knew how their actions "
-            "made you feel?"
+            "That sounds difficult, especially when friends "
+            "are involved. Do you think they knew how their "
+            "actions made you feel?"
         )
 
     # --------------------------------------------------------
@@ -258,9 +255,9 @@ def generate_response(user_text, emotion, history):
     ):
 
         return (
-            "It sounds like something really got under your skin. "
-            "What was the part of the situation that made you "
-            "the most angry?"
+            "It sounds like something really got under your "
+            "skin. What was the part of the situation that "
+            "made you the most angry?"
         )
 
     # --------------------------------------------------------
@@ -283,8 +280,8 @@ def generate_response(user_text, emotion, history):
 
         return (
             "I'm sorry you're going through that. 💙 "
-            "What do you think is making this feeling especially "
-            "strong right now?"
+            "What do you think is making this feeling "
+            "especially strong right now?"
         )
 
     # --------------------------------------------------------
@@ -335,7 +332,7 @@ def generate_response(user_text, emotion, history):
         )
 
     # --------------------------------------------------------
-    # POSITIVE CHANGE
+    # BETTER
     # --------------------------------------------------------
 
     if contains_any(
@@ -358,7 +355,7 @@ def generate_response(user_text, emotion, history):
         )
 
     # --------------------------------------------------------
-    # FIRST FOLLOW-UP
+    # FIRST RESPONSE
     # --------------------------------------------------------
 
     if len(history) <= 2:
@@ -369,40 +366,40 @@ def generate_response(user_text, emotion, history):
         )
 
     # --------------------------------------------------------
-    # SECOND FOLLOW-UP
+    # SECOND RESPONSE
     # --------------------------------------------------------
 
     if len(history) <= 4:
 
         return (
-            "I understand. Sometimes talking about what happened "
-            "can make things a little clearer. "
+            "I understand. Sometimes talking about what "
+            "happened can make things a little clearer. "
             "What do you think you need right now?"
         )
 
     # --------------------------------------------------------
-    # LATER FOLLOW-UPS
+    # LATER RESPONSES
     # --------------------------------------------------------
 
     responses = [
 
         (
             "That makes sense. 💙 "
-            "If you could change one thing about what happened, "
-            "what would it be?"
+            "If you could change one thing about what "
+            "happened, what would it be?"
         ),
 
         (
             "Thanks for being honest with me. "
-            "Do you feel like this is something you can work "
-            "through yourself, or would talking to someone "
-            "you trust help?"
+            "Do you feel like this is something you can "
+            "work through yourself, or would talking to "
+            "someone you trust help?"
         ),
 
         (
             "I hear you. "
-            "What do you think would make the situation feel "
-            "a little easier right now?"
+            "What do you think would make the situation "
+            "feel a little easier right now?"
         ),
 
         (
@@ -421,15 +418,13 @@ def generate_response(user_text, emotion, history):
 
 
 # ============================================================
-# RESET
+# RESET FUNCTION
 # ============================================================
 
 def reset_app():
 
     for key in DEFAULTS:
-
         if key in st.session_state:
-
             del st.session_state[key]
 
     st.experimental_rerun()
@@ -466,8 +461,8 @@ if st.session_state.stage == "welcome":
         """
         ⚠️ The camera cannot know exactly how you feel.
 
-        It only estimates the facial expression visible
-        in the photo. Your own explanation is more important.
+        It only estimates the facial expression visible in
+        the photo. Your own explanation is more important.
         """
     )
 
@@ -538,7 +533,10 @@ elif st.session_state.stage == "first_scan":
                 else:
 
                     st.session_state.first_emotion = emotion
-                    st.session_state.first_confidence = confidence
+
+                    st.session_state.first_confidence = (
+                        confidence
+                    )
 
                     emoji = EMOTION_EMOJIS.get(
                         emotion,
@@ -569,7 +567,9 @@ elif st.session_state.stage == "first_scan":
                             use_container_width=True,
                         ):
 
-                            st.session_state.actual_emotion = emotion
+                            st.session_state.actual_emotion = (
+                                emotion
+                            )
 
                             st.session_state.stage = (
                                 "conversation"
@@ -639,7 +639,9 @@ elif st.session_state.stage == "correct_emotion":
         type="primary",
     ):
 
-        st.session_state.actual_emotion = selected.lower()
+        st.session_state.actual_emotion = (
+            selected.lower()
+        )
 
         st.session_state.stage = "conversation"
 
@@ -686,8 +688,7 @@ elif st.session_state.stage == "conversation":
         )
 
     # --------------------------------------------------------
-    # DISPLAY CONVERSATION
-    # Compatible with Streamlit 1.22
+    # DISPLAY MESSAGES
     # --------------------------------------------------------
 
     for message in st.session_state.messages:
@@ -709,18 +710,31 @@ elif st.session_state.stage == "conversation":
     st.divider()
 
     # --------------------------------------------------------
-    # TEXT INPUT
+    # CHAT FORM
+    #
+    # IMPORTANT:
+    # We use clear_on_submit=True instead of changing
+    # st.session_state.user_input manually.
+    #
+    # This fixes the Streamlit 1.22 error:
+    # "cannot be modified after the widget ... is instantiated"
     # --------------------------------------------------------
 
-    user_message = st.text_input(
-        "Tell me what's going on...",
-        key="user_input",
-    )
-
-    if st.button(
-        "Send 💬",
-        use_container_width=True,
+    with st.form(
+        "chat_form",
+        clear_on_submit=True,
     ):
+
+        user_message = st.text_input(
+            "Tell me what's going on..."
+        )
+
+        send = st.form_submit_button(
+            "Send 💬",
+            use_container_width=True,
+        )
+
+    if send:
 
         user_message = clean_text(
             user_message
@@ -750,8 +764,6 @@ elif st.session_state.stage == "conversation":
                 }
             )
 
-            st.session_state.user_input = ""
-
             st.experimental_rerun()
 
         else:
@@ -761,7 +773,7 @@ elif st.session_state.stage == "conversation":
             )
 
     # --------------------------------------------------------
-    # END CONVERSATION
+    # FINISH CHECK-IN
     # --------------------------------------------------------
 
     st.divider()
@@ -829,7 +841,9 @@ elif st.session_state.stage == "second_scan":
 
                 else:
 
-                    st.session_state.second_emotion = emotion
+                    st.session_state.second_emotion = (
+                        emotion
+                    )
 
                     st.session_state.second_confidence = (
                         confidence
@@ -912,7 +926,7 @@ elif st.session_state.stage == "result":
         )
 
     # --------------------------------------------------------
-    # USER'S OWN FEELING
+    # FINAL HUMAN CHECK
     # --------------------------------------------------------
 
     st.subheader(
@@ -935,7 +949,9 @@ elif st.session_state.stage == "result":
         type="primary",
     ):
 
-        st.session_state.final_feeling = final_feeling
+        st.session_state.final_feeling = (
+            final_feeling
+        )
 
         st.session_state.stage = "goodbye"
 
