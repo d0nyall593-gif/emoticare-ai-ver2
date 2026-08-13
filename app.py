@@ -2,14 +2,12 @@ import streamlit as st
 from PIL import Image
 import torch
 
-# Import directly from the Transformers modules
-# instead of relying on top-level exports.
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE
 # ============================================================
 
 st.set_page_config(
@@ -93,7 +91,7 @@ EMOTION_EMOJIS = {
 
 
 # ============================================================
-# ANALYZE EMOTION
+# EMOTION ANALYSIS
 # ============================================================
 
 def analyze_emotion(photo, emotion_model):
@@ -115,7 +113,7 @@ def analyze_emotion(photo, emotion_model):
 
 
 # ============================================================
-# GENERATE REAL AI RESPONSE
+# REAL AI RESPONSE
 # ============================================================
 
 def generate_response(
@@ -139,7 +137,7 @@ It only estimates the visible facial expression.
 The user's own description of their feelings is
 more important than the camera prediction.
 
-Your job is to have a natural conversation.
+Have a natural conversation with the user.
 
 Rules:
 
@@ -147,12 +145,12 @@ Rules:
 - Respond to their latest message.
 - Remember earlier messages.
 - Ask relevant follow-up questions.
+- Generate responses based on the actual conversation.
 - Do not use prerecorded responses.
 - Do not repeat the same response.
 - Do not force the conversation to stay on the
   detected emotion.
-- Do not tell the user that they definitely feel
-  a particular emotion.
+- Do not claim that you know exactly how the user feels.
 - Never diagnose mental health conditions.
 - Never pretend to be a doctor or therapist.
 - Be warm and respectful.
@@ -163,7 +161,7 @@ Rules:
 - If the user says they are happy, do not insist
   that they are sad.
 - If the user gives a short answer, gently ask
-  something that helps the conversation continue.
+  a relevant follow-up question.
 """
 
     chat_messages = [
@@ -267,7 +265,7 @@ if st.session_state.stage == "welcome":
 
         st.session_state.stage = "first_scan"
 
-        st.rerun()
+        st.experimental_rerun()
 
 
 # ============================================================
@@ -326,7 +324,6 @@ elif st.session_state.stage == "first_scan":
                 else:
 
                     st.session_state.first_emotion = emotion
-
                     st.session_state.first_confidence = confidence
 
                     emoji = EMOTION_EMOJIS.get(
@@ -358,10 +355,9 @@ elif st.session_state.stage == "first_scan":
                         ):
 
                             st.session_state.actual_emotion = emotion
-
                             st.session_state.stage = "conversation"
 
-                            st.rerun()
+                            st.experimental_rerun()
 
                     with col2:
 
@@ -372,7 +368,7 @@ elif st.session_state.stage == "first_scan":
 
                             st.session_state.stage = "correct_emotion"
 
-                            st.rerun()
+                            st.experimental_rerun()
 
             except Exception as error:
 
@@ -423,10 +419,9 @@ elif st.session_state.stage == "correct_emotion":
     ):
 
         st.session_state.actual_emotion = selected.lower()
-
         st.session_state.stage = "conversation"
 
-        st.rerun()
+        st.experimental_rerun()
 
 
 # ============================================================
@@ -456,7 +451,7 @@ elif st.session_state.stage == "conversation":
             st.stop()
 
     # --------------------------------------------------------
-    # OPENING MESSAGE
+    # OPENING
     # --------------------------------------------------------
 
     if len(st.session_state.messages) == 0:
@@ -477,7 +472,7 @@ elif st.session_state.stage == "conversation":
         )
 
     # --------------------------------------------------------
-    # DISPLAY CHAT
+    # CHAT HISTORY
     # --------------------------------------------------------
 
     for message in st.session_state.messages:
@@ -540,10 +535,10 @@ elif st.session_state.stage == "conversation":
             }
         )
 
-        st.rerun()
+        st.experimental_rerun()
 
     # --------------------------------------------------------
-    # END CONVERSATION
+    # FINISH
     # --------------------------------------------------------
 
     st.divider()
@@ -560,7 +555,7 @@ elif st.session_state.stage == "conversation":
 
         st.session_state.stage = "second_scan"
 
-        st.rerun()
+        st.experimental_rerun()
 
 
 # ============================================================
@@ -573,8 +568,8 @@ elif st.session_state.stage == "second_scan":
 
     st.write(
         """
-        Take another photo so EmotiCare can make a
-        second facial-expression estimate.
+        Take another photo so EmotiCare can make
+        a second facial-expression estimate.
         """
     )
 
@@ -610,12 +605,10 @@ elif st.session_state.stage == "second_scan":
                 else:
 
                     st.session_state.second_emotion = emotion
-
                     st.session_state.second_confidence = confidence
-
                     st.session_state.stage = "result"
 
-                    st.rerun()
+                    st.experimental_rerun()
 
             except Exception as error:
 
@@ -627,13 +620,12 @@ elif st.session_state.stage == "second_scan":
 
 
 # ============================================================
-# RESULTS
+# RESULT
 # ============================================================
 
 elif st.session_state.stage == "result":
 
     first = st.session_state.first_emotion
-
     second = st.session_state.second_emotion
 
     st.title("📊 Your Check-in")
@@ -709,10 +701,9 @@ elif st.session_state.stage == "result":
     ):
 
         st.session_state.final_feeling = final_feeling
-
         st.session_state.stage = "goodbye"
 
-        st.rerun()
+        st.experimental_rerun()
 
 
 # ============================================================
@@ -769,7 +760,6 @@ elif st.session_state.stage == "goodbye":
         for key in list(defaults.keys()):
 
             if key in st.session_state:
-
                 del st.session_state[key]
 
-        st.rerun()
+        st.experimental_rerun()
