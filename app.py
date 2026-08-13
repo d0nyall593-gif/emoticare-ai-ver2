@@ -1,13 +1,9 @@
 import streamlit as st
 from PIL import Image
-import torch
-
-from transformers.models.auto.tokenization_auto import AutoTokenizer
-from transformers.models.auto.modeling_auto import AutoModelForCausalLM
-
+import re
 
 # ============================================================
-# PAGE
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -21,7 +17,7 @@ st.set_page_config(
 # SESSION STATE
 # ============================================================
 
-defaults = {
+DEFAULTS = {
     "stage": "welcome",
     "first_emotion": None,
     "first_confidence": 0.0,
@@ -29,10 +25,11 @@ defaults = {
     "second_confidence": 0.0,
     "actual_emotion": None,
     "messages": [],
+    "conversation_count": 0,
     "final_feeling": None,
 }
 
-for key, value in defaults.items():
+for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -43,36 +40,12 @@ for key, value in defaults.items():
 
 @st.cache_resource
 def load_emotion_model():
-
     from transformers import pipeline
 
     return pipeline(
         "image-classification",
         model="trpakov/vit-face-expression"
     )
-
-
-# ============================================================
-# CHAT MODEL
-# ============================================================
-
-@st.cache_resource
-def load_chat_model():
-
-    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name
-    )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float32
-    )
-
-    model.eval()
-
-    return tokenizer, model
 
 
 # ============================================================
@@ -106,115 +79,355 @@ def analyze_emotion(photo, emotion_model):
     best = results[0]
 
     emotion = best["label"].lower()
-
     confidence = float(best["score"]) * 100
 
     return emotion, confidence
 
 
 # ============================================================
-# REAL AI RESPONSE
+# TEXT HELPERS
 # ============================================================
 
-def generate_response(
-    tokenizer,
-    model,
-    emotion,
-    messages
-):
+def contains_any(text, words):
 
-    system_prompt = f"""
-You are EmotiCare, a friendly and supportive
-conversation companion for a school project.
+    text = text.lower()
 
-The facial-expression AI estimated that the user's
-expression may be "{emotion}".
-
-IMPORTANT:
-The camera cannot know the user's true feelings.
-It only estimates the visible facial expression.
-
-The user's own description of their feelings is
-more important than the camera prediction.
-
-Have a natural conversation with the user.
-
-Rules:
-
-- Listen carefully to what the user actually says.
-- Respond to their latest message.
-- Remember earlier messages.
-- Ask relevant follow-up questions.
-- Generate responses based on the actual conversation.
-- Do not use prerecorded responses.
-- Do not repeat the same response.
-- Do not force the conversation to stay on the
-  detected emotion.
-- Do not claim that you know exactly how the user feels.
-- Never diagnose mental health conditions.
-- Never pretend to be a doctor or therapist.
-- Be warm and respectful.
-- Use simple language.
-- Keep responses short.
-- Usually use 1 to 3 sentences.
-- If the user says they are okay, accept that.
-- If the user says they are happy, do not insist
-  that they are sad.
-- If the user gives a short answer, gently ask
-  a relevant follow-up question.
-"""
-
-    chat_messages = [
-        {
-            "role": "system",
-            "content": system_prompt
-        }
-    ]
-
-    for message in messages:
-
-        chat_messages.append(
-            {
-                "role": message["role"],
-                "content": message["content"]
-            }
-        )
-
-    prompt = tokenizer.apply_chat_template(
-        chat_messages,
-        tokenize=False,
-        add_generation_prompt=True
+    return any(
+        word in text
+        for word in words
     )
 
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt"
-    )
 
-    with torch.no_grad():
+def clean_text(text):
 
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=100,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            repetition_penalty=1.1,
-            pad_token_id=tokenizer.eos_token_id
-        )
+    text = text.strip()
 
-    generated_tokens = outputs[
-        0
-    ][
-        inputs["input_ids"].shape[1]:
+    if not text:
+        return ""
+
+    return text
+
+
+# ============================================================
+# CONTEXT-AWARE RESPONSE ENGINE
+# ============================================================
+
+def generate_response(user_text, emotion, history):
+
+    text = clean_text(user_text)
+    lower = text.lower()
+
+    # --------------------------------------------------------
+    # SAFETY / SERIOUS DISTRESS
+    # --------------------------------------------------------
+
+    serious_words = [
+        "kill myself",
+        "suicide",
+        "want to die",
+        "hurt myself",
+        "self harm",
+        "self-harm"
     ]
 
-    response = tokenizer.decode(
-        generated_tokens,
-        skip_special_tokens=True
-    ).strip()
+    if contains_any(lower, serious_words):
 
-    return response
+        return (
+            "I'm really sorry you're dealing with something "
+            "this heavy. Please don't handle it alone—talk "
+            "to a parent, teacher, counselor, or another trusted "
+            "person who can be with you right now."
+        )
+
+    # --------------------------------------------------------
+    # POSITIVE RESPONSE
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "i'm okay",
+            "im okay",
+            "i am okay",
+            "i feel okay",
+            "i'm fine",
+            "im fine",
+            "i am fine",
+            "better now",
+            "feel better"
+        ]
+    ):
+
+        return (
+            "I'm glad things feel a little better. 💙 "
+            "What do you think helped you feel that way?"
+        )
+
+    # --------------------------------------------------------
+    # SCHOOL
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "school",
+            "exam",
+            "test",
+            "homework",
+            "teacher",
+            "class",
+            "grade",
+            "marks",
+            "assignment"
+        ]
+    ):
+
+        return (
+            "School pressure can definitely affect how we feel. "
+            "What happened today that bothered you the most?"
+        )
+
+    # --------------------------------------------------------
+    # FRIENDS
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "friend",
+            "friends",
+            "best friend",
+            "ignored me",
+            "ignore me",
+            "left me",
+            "excluded me",
+            "group"
+        ]
+    ):
+
+        return (
+            "That sounds difficult, especially when friends are "
+            "involved. Do you think they knew how their actions "
+            "made you feel?"
+        )
+
+    # --------------------------------------------------------
+    # FAMILY
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "mom",
+            "mum",
+            "mother",
+            "dad",
+            "father",
+            "parent",
+            "parents",
+            "brother",
+            "sister",
+            "family"
+        ]
+    ):
+
+        return (
+            "Family situations can be complicated. 💙 "
+            "Would you like to tell me a little more about "
+            "what happened?"
+        )
+
+    # --------------------------------------------------------
+    # TIRED / SLEEP
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "tired",
+            "sleep",
+            "sleepy",
+            "exhausted",
+            "no energy",
+            "energy"
+        ]
+    ):
+
+        return (
+            "It sounds like you might really need some time "
+            "to recharge. Have you been getting enough rest "
+            "lately?"
+        )
+
+    # --------------------------------------------------------
+    # ANGRY
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "angry",
+            "mad",
+            "annoyed",
+            "annoying",
+            "furious",
+            "rage",
+            "pissed"
+        ]
+    ):
+
+        return (
+            "It sounds like something really got under your skin. "
+            "What was the part of the situation that made you "
+            "the most angry?"
+        )
+
+    # --------------------------------------------------------
+    # SAD
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "sad",
+            "lonely",
+            "alone",
+            "cry",
+            "crying",
+            "upset",
+            "hurt",
+            "heartbroken"
+        ]
+    ):
+
+        return (
+            "I'm sorry you're going through that. 💙 "
+            "What do you think is making this feeling especially "
+            "strong right now?"
+        )
+
+    # --------------------------------------------------------
+    # WORRY / STRESS
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "stress",
+            "stressed",
+            "worried",
+            "worry",
+            "anxious",
+            "anxiety",
+            "nervous",
+            "pressure"
+        ]
+    ):
+
+        return (
+            "That sounds like a lot to carry. "
+            "Is there one particular thing you're worrying "
+            "about the most?"
+        )
+
+    # --------------------------------------------------------
+    # HAPPY
+    # --------------------------------------------------------
+
+    if contains_any(
+        lower,
+        [
+            "happy",
+            "great",
+            "amazing",
+            "good",
+            "excited",
+            "fun",
+            "awesome",
+            "wonderful"
+        ]
+    ):
+
+        return (
+            "That's nice to hear! 😊 "
+            "What happened that made your day better?"
+        )
+
+    # --------------------------------------------------------
+    # FIRST RESPONSE
+    # --------------------------------------------------------
+
+    if len(history) <= 2:
+
+        emotion_name = emotion.capitalize()
+
+        return (
+            f"Thanks for telling me. 💙 "
+            f"Your camera showed a possible {emotion_name} "
+            "expression, but your explanation is more important. "
+            "Can you tell me a little more about what happened?"
+        )
+
+    # --------------------------------------------------------
+    # SECOND RESPONSE
+    # --------------------------------------------------------
+
+    if len(history) <= 4:
+
+        return (
+            "I understand. Sometimes talking about what happened "
+            "can make things a little clearer. "
+            "What do you think you need right now?"
+        )
+
+    # --------------------------------------------------------
+    # LATER RESPONSES
+    # --------------------------------------------------------
+
+    responses = [
+        (
+            "That makes sense. 💙 "
+            "If you could change one thing about what happened, "
+            "what would it be?"
+        ),
+        (
+            "Thanks for being honest with me. "
+            "Do you feel like this is something you can work "
+            "through yourself, or would talking to someone "
+            "you trust help?"
+        ),
+        (
+            "I hear you. "
+            "What do you think would make the situation feel "
+            "a little easier right now?"
+        ),
+        (
+            "That's understandable. "
+            "Has this been bothering you for a while, "
+            "or did it happen recently?"
+        ),
+    ]
+
+    index = (
+        st.session_state.conversation_count
+        % len(responses)
+    )
+
+    return responses[index]
+
+
+# ============================================================
+# RESET
+# ============================================================
+
+def reset_app():
+
+    for key in list(DEFAULTS.keys()):
+
+        if key in st.session_state:
+            del st.session_state[key]
+
+    st.experimental_rerun()
 
 
 # ============================================================
@@ -231,29 +444,25 @@ if st.session_state.stage == "welcome":
 
     st.write(
         """
-        EmotiCare uses AI to estimate a facial expression
-        and then gives you a real AI-powered conversation.
+        EmotiCare uses AI to estimate your visible facial
+        expression and then guides you through a short
+        conversation about how you're feeling.
         """
     )
 
     st.info(
         """
-        📸 Camera permission
-
-        The camera is only used when you choose to take
-        an emotion-check photo.
+        📸 Your camera is only used when you choose to
+        take an emotion-check photo.
         """
     )
 
     st.warning(
         """
-        ⚠️ Important
+        ⚠️ The camera cannot know exactly how you feel.
 
-        Facial-expression AI cannot know exactly how
-        someone feels.
-
-        It only estimates the expression visible in
-        the photo. Your own answer is more important.
+        It only estimates the facial expression visible
+        in the photo. Your own explanation is more important.
         """
     )
 
@@ -277,7 +486,7 @@ elif st.session_state.stage == "first_scan":
     st.title("📸 First Emotion Check")
 
     st.write(
-        "Take a photo so the AI can estimate your facial expression."
+        "Take a photo so the AI can estimate your expression."
     )
 
     photo = st.camera_input(
@@ -342,7 +551,8 @@ elif st.session_state.stage == "first_scan":
                     )
 
                     st.write(
-                        f"Does **{emotion}** match how you actually feel?"
+                        f"Does **{emotion}** match how you "
+                        "actually feel?"
                     )
 
                     col1, col2 = st.columns(2)
@@ -425,43 +635,35 @@ elif st.session_state.stage == "correct_emotion":
 
 
 # ============================================================
-# REAL AI CONVERSATION
+# CONVERSATION
 # ============================================================
 
 elif st.session_state.stage == "conversation":
 
+    emotion = st.session_state.actual_emotion
+
+    emoji = EMOTION_EMOJIS.get(
+        emotion,
+        "💙"
+    )
+
     st.title("💬 Talk to EmotiCare")
 
-    with st.spinner(
-        "Starting the conversation AI..."
-    ):
-
-        try:
-
-            tokenizer, chat_model = load_chat_model()
-
-        except Exception as error:
-
-            st.error(
-                "The conversation AI could not load."
-            )
-
-            st.exception(error)
-
-            st.stop()
+    st.caption(
+        f"{emoji} We're checking in about how you're feeling."
+    )
 
     # --------------------------------------------------------
-    # OPENING
+    # INITIAL AI MESSAGE
     # --------------------------------------------------------
 
     if len(st.session_state.messages) == 0:
 
         opening = (
-            "I'd like to hear what's on your mind. "
-            f"The camera estimated a possible "
-            f"{st.session_state.actual_emotion} expression, "
-            "but you know yourself better. "
-            "Why do you think you're feeling this way?"
+            f"I noticed a possible {emotion} expression. "
+            "Of course, the camera can be wrong, so I want "
+            "to hear it from you. Why do you think you're "
+            f"feeling {emotion}?"
         )
 
         st.session_state.messages.append(
@@ -472,7 +674,7 @@ elif st.session_state.stage == "conversation":
         )
 
     # --------------------------------------------------------
-    # CHAT HISTORY
+    # DISPLAY MESSAGES
     # --------------------------------------------------------
 
     for message in st.session_state.messages:
@@ -486,7 +688,7 @@ elif st.session_state.stage == "conversation":
             )
 
     # --------------------------------------------------------
-    # USER MESSAGE
+    # USER INPUT
     # --------------------------------------------------------
 
     user_message = st.chat_input(
@@ -495,56 +697,44 @@ elif st.session_state.stage == "conversation":
 
     if user_message:
 
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": user_message
-            }
+        user_message = clean_text(
+            user_message
         )
 
-        with st.spinner(
-            "EmotiCare is thinking..."
-        ):
+        if user_message:
 
-            try:
+            st.session_state.messages.append(
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            )
 
-                response = generate_response(
-                    tokenizer,
-                    chat_model,
-                    st.session_state.actual_emotion,
-                    st.session_state.messages
-                )
+            st.session_state.conversation_count += 1
 
-            except Exception as error:
+            response = generate_response(
+                user_message,
+                emotion,
+                st.session_state.messages
+            )
 
-                st.error(
-                    "The AI had trouble generating a response."
-                )
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": response
+                }
+            )
 
-                st.exception(error)
-
-                response = (
-                    "I'm having a little trouble thinking "
-                    "right now. Could you tell me a little more?"
-                )
-
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": response
-            }
-        )
-
-        st.experimental_rerun()
+            st.experimental_rerun()
 
     # --------------------------------------------------------
-    # FINISH
+    # FINISH CONVERSATION
     # --------------------------------------------------------
 
     st.divider()
 
     st.write(
-        "When you're ready to finish:"
+        "When you're ready, let's check in one more time."
     )
 
     if st.button(
@@ -559,7 +749,7 @@ elif st.session_state.stage == "conversation":
 
 
 # ============================================================
-# SECOND SCAN
+# SECOND CAMERA SCAN
 # ============================================================
 
 elif st.session_state.stage == "second_scan":
@@ -568,8 +758,10 @@ elif st.session_state.stage == "second_scan":
 
     st.write(
         """
-        Take another photo so EmotiCare can make
-        a second facial-expression estimate.
+        Take another photo.
+
+        EmotiCare will make a second estimate so we can
+        compare the visible expression with your first scan.
         """
     )
 
@@ -606,6 +798,7 @@ elif st.session_state.stage == "second_scan":
 
                     st.session_state.second_emotion = emotion
                     st.session_state.second_confidence = confidence
+
                     st.session_state.stage = "result"
 
                     st.experimental_rerun()
@@ -662,23 +855,33 @@ elif st.session_state.stage == "result":
 
     st.divider()
 
-    if first != second:
+    # --------------------------------------------------------
+    # SIMPLE COMPARISON
+    # --------------------------------------------------------
 
-        st.success(
+    if first == second:
+
+        st.info(
             f"""
-            The AI's estimated facial expression changed
-            from **{first}** to **{second}**.
+            The AI estimated **{second}** in both photos.
+
+            That doesn't necessarily mean you feel the same,
+            because facial-expression AI can be inaccurate.
             """
         )
 
     else:
 
-        st.info(
+        st.success(
             f"""
-            The AI estimated a similar facial expression
-            both times: **{second}**.
+            The AI's visible-expression estimate changed
+            from **{first}** to **{second}**.
             """
         )
+
+    # --------------------------------------------------------
+    # USER'S ACTUAL FEELING
+    # --------------------------------------------------------
 
     st.subheader(
         "But how do YOU feel now?"
@@ -716,21 +919,32 @@ elif st.session_state.stage == "goodbye":
 
     feeling = st.session_state.final_feeling
 
-    if "better" in feeling.lower():
+    if "I feel better" in feeling:
 
         st.success(
             """
-            I'm glad you're feeling better. 💙
+            I'm really glad you're feeling better. 💙
 
             Remember to be kind to yourself.
             """
+
         )
 
-    elif "same" in feeling.lower():
+    elif "little better" in feeling:
+
+        st.success(
+            """
+            Even a little improvement matters. 💙
+
+            Take things one step at a time.
+            """
+        )
+
+    elif "about the same" in feeling:
 
         st.info(
             """
-            That's okay. 💙
+            That's completely okay. 💙
 
             You don't have to feel better immediately.
             Give yourself some time.
@@ -741,10 +955,10 @@ elif st.session_state.stage == "goodbye":
 
         st.info(
             """
-            I'm sorry you're still having a difficult moment.
+            I'm sorry you're still having a difficult moment. 💙
 
             Consider talking to someone you trust if you
-            need some extra support. 💙
+            need some extra support.
             """
         )
 
@@ -752,14 +966,11 @@ elif st.session_state.stage == "goodbye":
         "Thank you for spending a moment with EmotiCare."
     )
 
+    st.divider()
+
     if st.button(
         "🔄 Start Again",
         use_container_width=True
     ):
 
-        for key in list(defaults.keys()):
-
-            if key in st.session_state:
-                del st.session_state[key]
-
-        st.experimental_rerun()
+        reset_app()
