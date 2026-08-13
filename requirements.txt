@@ -1,6 +1,7 @@
 streamlit==1.22.0
-transformers
-torch
-torchvision
-pillow
-numpy
+transformers==4.40.2
+torch==2.0.1
+torchvision==0.15.2
+pillow==10.3.0
+numpy==1.24.4
+sentencepiece==0.2.0
