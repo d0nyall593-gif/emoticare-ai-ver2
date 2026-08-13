@@ -1,17 +1,15 @@
 import streamlit as st
 from PIL import Image
-import numpy as np
 import torch
 
 from transformers import (
-    pipeline,
     AutoTokenizer,
     AutoModelForCausalLM
 )
 
 
 # ============================================================
-# PAGE
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -25,23 +23,29 @@ st.set_page_config(
 # SESSION STATE
 # ============================================================
 
-DEFAULTS = {
-    "stage": "welcome",
-    "first_emotion": None,
-    "first_confidence": 0.0,
-    "second_emotion": None,
-    "second_confidence": 0.0,
-    "actual_emotion": None,
-    "messages": [],
-    "final_feeling": None,
-}
+if "stage" not in st.session_state:
+    st.session_state.stage = "welcome"
 
+if "first_emotion" not in st.session_state:
+    st.session_state.first_emotion = None
 
-for key, value in DEFAULTS.items():
+if "first_confidence" not in st.session_state:
+    st.session_state.first_confidence = 0.0
 
-    if key not in st.session_state:
+if "second_emotion" not in st.session_state:
+    st.session_state.second_emotion = None
 
-        st.session_state[key] = value
+if "second_confidence" not in st.session_state:
+    st.session_state.second_confidence = 0.0
+
+if "actual_emotion" not in st.session_state:
+    st.session_state.actual_emotion = None
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "final_feeling" not in st.session_state:
+    st.session_state.final_feeling = None
 
 
 # ============================================================
@@ -50,6 +54,8 @@ for key, value in DEFAULTS.items():
 
 @st.cache_resource
 def load_emotion_model():
+
+    from transformers import pipeline
 
     return pipeline(
         "image-classification",
@@ -75,25 +81,9 @@ def load_chat_model():
         torch_dtype=torch.float32
     )
 
+    model.eval()
+
     return tokenizer, model
-
-
-# ============================================================
-# LOAD MODELS
-# ============================================================
-
-@st.cache_resource
-def get_models():
-
-    emotion_model = load_emotion_model()
-
-    tokenizer, chat_model = load_chat_model()
-
-    return emotion_model, tokenizer, chat_model
-
-
-# Don't load everything immediately on welcome screen.
-# Models are loaded when the user actually starts.
 
 
 # ============================================================
@@ -101,21 +91,13 @@ def get_models():
 # ============================================================
 
 EMOTION_EMOJIS = {
-
     "happy": "😊",
-
     "sad": "😔",
-
     "angry": "😡",
-
     "fear": "😨",
-
     "surprise": "😮",
-
     "disgust": "🤢",
-
-    "neutral": "😐",
-
+    "neutral": "😐"
 }
 
 
@@ -123,21 +105,15 @@ EMOTION_EMOJIS = {
 # EMOTION ANALYSIS
 # ============================================================
 
-def analyze_emotion(
-    photo,
-    emotion_model
-):
+def analyze_emotion(photo, emotion_model):
 
     image = Image.open(
         photo
     ).convert("RGB")
 
-    results = emotion_model(
-        image
-    )
+    results = emotion_model(image)
 
     if not results:
-
         return None, 0.0
 
     best = results[0]
@@ -152,7 +128,7 @@ def analyze_emotion(
 
 
 # ============================================================
-# REAL AI CHAT RESPONSE
+# REAL AI RESPONSE
 # ============================================================
 
 def generate_response(
@@ -166,34 +142,35 @@ def generate_response(
 You are EmotiCare, a friendly and supportive
 conversation companion for a school project.
 
-The camera estimated that the user's facial
+The facial-expression AI estimated that the user's
 expression may be "{emotion}".
 
-IMPORTANT:
-The camera does NOT know the user's true feelings.
-Never claim that the user definitely feels an emotion.
+The facial-expression result is NOT guaranteed to
+represent the user's real emotion.
 
-Your job is to:
-- listen carefully
-- respond naturally to what the user actually says
-- ask relevant follow-up questions
-- remember what they said earlier
-- avoid repeating the same sentence
-- keep responses short and conversational
-- use simple, friendly language
-- never pretend to be a doctor or therapist
-- never diagnose mental health conditions
-- never say you know exactly how the user feels
-- do not mention being a language model unless asked
+Your job is to have a natural conversation with the user.
 
-The user should feel like they are having
-a genuine conversation, not answering a questionnaire.
+IMPORTANT RULES:
 
-If the user gives a short answer, gently encourage
-them to explain more.
+- Listen to what the user actually says.
+- Respond to their latest message.
+- Remember previous messages.
+- Ask natural follow-up questions when appropriate.
+- Do not use a fixed list of responses.
+- Do not repeat the same response.
+- Do not force the user to talk about the detected emotion.
+- Do not claim that you know exactly how they feel.
+- Do not diagnose mental health conditions.
+- Do not pretend to be a doctor or therapist.
+- Be warm, calm and respectful.
+- Keep replies short enough for a chat application.
+- Usually respond with 1 to 3 sentences.
+- If the user says they are okay, accept that.
+- If the user says they are happy, do not insist they are sad.
+- The user's own description of their feelings is more
+  important than the camera prediction.
 
-Do not force the conversation to stay on the
-emotion detected by the camera.
+The goal is to help the user reflect on how they feel.
 """
 
     chat_messages = [
@@ -235,14 +212,14 @@ emotion detected by the camera.
             pad_token_id=tokenizer.eos_token_id
         )
 
-    generated = outputs[
+    generated_tokens = outputs[
         0
     ][
         inputs["input_ids"].shape[1]:
     ]
 
     response = tokenizer.decode(
-        generated,
+        generated_tokens,
         skip_special_tokens=True
     ).strip()
 
@@ -250,7 +227,7 @@ emotion detected by the camera.
 
 
 # ============================================================
-# WELCOME
+# WELCOME SCREEN
 # ============================================================
 
 if st.session_state.stage == "welcome":
@@ -258,23 +235,23 @@ if st.session_state.stage == "welcome":
     st.title("💙 EmotiCare AI")
 
     st.subheader(
-        "A moment to check in with yourself."
+        "A little space to check in with yourself."
     )
 
     st.write(
         """
-        EmotiCare uses facial-expression AI as a starting
-        point, then lets you have a real AI-powered
-        conversation about what's on your mind.
+        EmotiCare uses AI to estimate facial expressions
+        and then lets you have a real AI conversation
+        about how you're feeling.
         """
     )
 
     st.info(
         """
-        📸 Camera
+        📸 Camera permission
 
-        The camera is only used when you choose to
-        take an emotion-check photo.
+        Your camera is only used when you choose to
+        take a photo for the emotion check.
         """
     )
 
@@ -283,11 +260,10 @@ if st.session_state.stage == "welcome":
         ⚠️ Important
 
         Facial-expression AI cannot know exactly how
-        someone feels. It only estimates what expression
-        appears in the photo.
+        someone feels.
 
-        Your own answer is more important than the AI's
-        prediction.
+        It only estimates the expression visible
+        in the photo. Your own answer is more important.
         """
     )
 
@@ -303,12 +279,12 @@ if st.session_state.stage == "welcome":
 
 
 # ============================================================
-# FIRST SCAN
+# FIRST CAMERA SCAN
 # ============================================================
 
 elif st.session_state.stage == "first_scan":
 
-    st.title("📸 First Check")
+    st.title("📸 First Emotion Check")
 
     st.write(
         "Take a photo so the AI can estimate your facial expression."
@@ -321,10 +297,22 @@ elif st.session_state.stage == "first_scan":
     if photo:
 
         with st.spinner(
-            "Loading the AI models..."
+            "Loading AI models... This may take a little while the first time."
         ):
 
-            emotion_model, tokenizer, chat_model = get_models()
+            try:
+
+                emotion_model = load_emotion_model()
+
+            except Exception as error:
+
+                st.error(
+                    "The emotion AI could not load."
+                )
+
+                st.exception(error)
+
+                st.stop()
 
         with st.spinner(
             "Analyzing your expression..."
@@ -337,98 +325,98 @@ elif st.session_state.stage == "first_scan":
                     emotion_model
                 )
 
-                st.session_state.first_emotion = emotion
+                if emotion is None:
 
-                st.session_state.first_confidence = confidence
+                    st.error(
+                        "I couldn't detect an expression."
+                    )
 
-                emoji = EMOTION_EMOJIS.get(
-                    emotion,
-                    "🙂"
-                )
+                else:
 
-                st.success(
-                    f"{emoji} Possible expression: "
-                    f"**{emotion.capitalize()}**"
-                )
+                    st.session_state.first_emotion = emotion
 
-                st.caption(
-                    f"AI estimate confidence: {confidence:.1f}%"
-                )
+                    st.session_state.first_confidence = confidence
 
-                st.write(
-                    f"Does **{emotion}** match how you feel?"
-                )
+                    emoji = EMOTION_EMOJIS.get(
+                        emotion,
+                        "🙂"
+                    )
 
-                col1, col2 = st.columns(2)
+                    st.success(
+                        f"{emoji} Possible expression: "
+                        f"**{emotion.capitalize()}**"
+                    )
 
-                with col1:
+                    st.caption(
+                        f"AI estimate confidence: "
+                        f"{confidence:.1f}%"
+                    )
 
-                    if st.button(
-                        "✅ Yes",
-                        use_container_width=True
-                    ):
+                    st.write(
+                        f"Does **{emotion}** match how you actually feel?"
+                    )
 
-                        st.session_state.actual_emotion = emotion
+                    col1, col2 = st.columns(2)
 
-                        st.session_state.stage = "conversation"
+                    with col1:
 
-                        st.rerun()
+                        if st.button(
+                            "✅ Yes",
+                            use_container_width=True
+                        ):
 
-                with col2:
+                            st.session_state.actual_emotion = emotion
 
-                    if st.button(
-                        "❌ No",
-                        use_container_width=True
-                    ):
+                            st.session_state.stage = "conversation"
 
-                        st.session_state.stage = "correct_emotion"
+                            st.rerun()
 
-                        st.rerun()
+                    with col2:
+
+                        if st.button(
+                            "❌ No",
+                            use_container_width=True
+                        ):
+
+                            st.session_state.stage = "correct_emotion"
+
+                            st.rerun()
 
             except Exception as error:
 
                 st.error(
-                    "The emotion model couldn't analyze the photo."
+                    "The emotion AI could not analyze the photo."
                 )
 
                 st.exception(error)
 
 
 # ============================================================
-# CORRECT AI
+# USER CORRECTS AI
 # ============================================================
 
 elif st.session_state.stage == "correct_emotion":
 
-    st.title("💭 You know yourself better")
+    st.title("💭 You know yourself best")
 
     st.write(
         """
         The camera can make mistakes.
+
         Tell EmotiCare how you're actually feeling.
         """
     )
 
     choices = [
-
         "Happy",
-
         "Sad",
-
         "Angry",
-
         "Worried",
-
         "Stressed",
-
         "Tired",
-
         "Excited",
-
         "Confused",
-
-        "Neutral",
-
+        "Neutral"
     ]
 
     selected = st.selectbox(
@@ -457,18 +445,37 @@ elif st.session_state.stage == "conversation":
 
     st.title("💬 Talk to EmotiCare")
 
-    emotion_model, tokenizer, chat_model = get_models()
+    # Load the language model only when needed
+    with st.spinner(
+        "Starting the conversation AI..."
+    ):
+
+        try:
+
+            tokenizer, chat_model = load_chat_model()
+
+        except Exception as error:
+
+            st.error(
+                "The conversation AI could not load."
+            )
+
+            st.exception(error)
+
+            st.stop()
 
     # --------------------------------------------------------
-    # First AI message
+    # FIRST MESSAGE
     # --------------------------------------------------------
 
     if len(st.session_state.messages) == 0:
 
         opening = (
-            f"I noticed your expression may look "
-            f"{st.session_state.actual_emotion}. "
-            f"Does something have you feeling that way?"
+            "I'd like to hear what's on your mind. "
+            f"The camera estimated a possible "
+            f"{st.session_state.actual_emotion} expression, "
+            "but you know yourself better. "
+            "What is going on?"
         )
 
         st.session_state.messages.append(
@@ -479,7 +486,7 @@ elif st.session_state.stage == "conversation":
         )
 
     # --------------------------------------------------------
-    # Show conversation
+    # DISPLAY CHAT
     # --------------------------------------------------------
 
     for message in st.session_state.messages:
@@ -493,7 +500,7 @@ elif st.session_state.stage == "conversation":
             )
 
     # --------------------------------------------------------
-    # User message
+    # USER INPUT
     # --------------------------------------------------------
 
     user_message = st.chat_input(
@@ -524,13 +531,15 @@ elif st.session_state.stage == "conversation":
 
             except Exception as error:
 
-                response = (
-                    "I'm sorry, I had trouble thinking "
-                    "of a response just now."
+                st.error(
+                    "The conversation AI had trouble generating a response."
                 )
 
-                st.error(
-                    str(error)
+                st.exception(error)
+
+                response = (
+                    "I'm having a little trouble right now. "
+                    "Could you tell me a little more?"
                 )
 
         st.session_state.messages.append(
@@ -543,13 +552,13 @@ elif st.session_state.stage == "conversation":
         st.rerun()
 
     # --------------------------------------------------------
-    # Finish conversation
+    # FINISH CONVERSATION
     # --------------------------------------------------------
 
     st.divider()
 
     st.write(
-        "When you're ready to finish the conversation:"
+        "Ready to check in one more time?"
     )
 
     if st.button(
@@ -564,7 +573,7 @@ elif st.session_state.stage == "conversation":
 
 
 # ============================================================
-# SECOND SCAN
+# SECOND CAMERA SCAN
 # ============================================================
 
 elif st.session_state.stage == "second_scan":
@@ -573,15 +582,15 @@ elif st.session_state.stage == "second_scan":
 
     st.write(
         """
-        Before we finish, let's take another photo.
+        Take one more photo.
 
-        EmotiCare will compare the two facial-expression
-        estimates.
+        EmotiCare will compare the facial-expression
+        estimates from before and now.
         """
     )
 
     st.caption(
-        "The comparison is only an estimate — your own feelings matter most."
+        "Remember: this is only an AI estimate."
     )
 
     photo = st.camera_input(
@@ -590,31 +599,39 @@ elif st.session_state.stage == "second_scan":
 
     if photo:
 
-        emotion_model, tokenizer, chat_model = get_models()
-
         with st.spinner(
             "Analyzing your expression again..."
         ):
 
             try:
 
+                emotion_model = load_emotion_model()
+
                 emotion, confidence = analyze_emotion(
                     photo,
                     emotion_model
                 )
 
-                st.session_state.second_emotion = emotion
+                if emotion is None:
 
-                st.session_state.second_confidence = confidence
+                    st.error(
+                        "I couldn't analyze the second photo."
+                    )
 
-                st.session_state.stage = "result"
+                else:
 
-                st.rerun()
+                    st.session_state.second_emotion = emotion
+
+                    st.session_state.second_confidence = confidence
+
+                    st.session_state.stage = "result"
+
+                    st.rerun()
 
             except Exception as error:
 
                 st.error(
-                    "The second scan failed."
+                    "The second emotion scan failed."
                 )
 
                 st.exception(error)
@@ -644,6 +661,7 @@ elif st.session_state.stage == "result":
         )
 
         st.caption(
+            f"AI estimate: "
             f"{st.session_state.first_confidence:.1f}%"
         )
 
@@ -657,6 +675,7 @@ elif st.session_state.stage == "result":
         )
 
         st.caption(
+            f"AI estimate: "
             f"{st.session_state.second_confidence:.1f}%"
         )
 
@@ -675,8 +694,8 @@ elif st.session_state.stage == "result":
 
         st.info(
             f"""
-            The AI estimated a similar expression both times:
-            **{second}**.
+            The AI estimated a similar facial expression
+            both times: **{second}**.
             """
         )
 
@@ -685,15 +704,12 @@ elif st.session_state.stage == "result":
     )
 
     final_feeling = st.radio(
-        "Choose the answer closest to how you actually feel:",
+        "Choose the answer that feels closest:",
         [
             "😊 I feel better",
-
             "🙂 I feel a little better",
-
             "😐 I feel about the same",
-
-            "😔 I still don't feel good",
+            "😔 I still don't feel good"
         ]
     )
 
@@ -724,21 +740,21 @@ elif st.session_state.stage == "goodbye":
 
         st.success(
             """
-            I'm glad you're feeling better.
+            I'm glad you're feeling better. 💙
 
-            Take care of yourself, and remember that
-            talking about things can be a good first step. 💙
+            Remember to be kind to yourself.
             """
+
         )
 
     elif "same" in feeling.lower():
 
         st.info(
             """
-            That's okay.
+            That's okay. 💙
 
             You don't have to feel better immediately.
-            Be patient with yourself. 💙
+            Give yourself some time.
             """
         )
 
@@ -748,8 +764,8 @@ elif st.session_state.stage == "goodbye":
             """
             I'm sorry you're still having a difficult moment.
 
-            If you need support, consider talking with
-            someone you trust. 💙
+            Consider talking to someone you trust if you
+            need some extra support. 💙
             """
         )
 
@@ -762,8 +778,21 @@ elif st.session_state.stage == "goodbye":
         use_container_width=True
     ):
 
-        for key, value in DEFAULTS.items():
+        keys_to_clear = [
+            "stage",
+            "first_emotion",
+            "first_confidence",
+            "second_emotion",
+            "second_confidence",
+            "actual_emotion",
+            "messages",
+            "final_feeling"
+        ]
 
-            st.session_state[key] = value
+        for key in keys_to_clear:
+
+            if key in st.session_state:
+
+                del st.session_state[key]
 
         st.rerun()
