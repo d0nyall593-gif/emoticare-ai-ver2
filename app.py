@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 from PIL import Image
 
@@ -27,6 +28,9 @@ DEFAULTS = {
     "messages": [],
     "conversation_count": 0,
     "final_feeling": None,
+    "conversation_topic": None,
+    "safety_mode": False,
+    "asked_safety_question": False,
 }
 
 for key, value in DEFAULTS.items():
@@ -40,6 +44,7 @@ for key, value in DEFAULTS.items():
 
 @st.cache_resource
 def load_emotion_model():
+
     from transformers import pipeline
 
     return pipeline(
@@ -85,7 +90,7 @@ def analyze_emotion(photo, emotion_model):
 
 
 # ============================================================
-# TEXT CLEANING
+# TEXT HELPERS
 # ============================================================
 
 def clean_text(text):
@@ -96,23 +101,331 @@ def clean_text(text):
     return text.strip()
 
 
-# ============================================================
-# KEYWORD HELPER
-# ============================================================
-
-def contains_any(text, words):
+def contains_any(text, phrases):
 
     text = text.lower()
 
-    for word in words:
-        if word in text:
+    for phrase in phrases:
+        if phrase in text:
             return True
 
     return False
 
 
+def word_count(text):
+
+    return len(re.findall(r"\b\w+\b", text))
+
+
 # ============================================================
-# CONVERSATION ENGINE
+# SITUATION DETECTOR
+# ============================================================
+
+def detect_situation(text):
+
+    text = text.lower()
+
+    # --------------------------------------------------------
+    # IMMEDIATE DANGER / ACCIDENT / INJURY
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "got hit by a car",
+            "hit by a car",
+            "car hit me",
+            "car accident",
+            "car crash",
+            "traffic accident",
+            "road accident",
+            "motorcycle accident",
+            "bike accident",
+            "bicycle accident",
+            "got injured",
+            "i am injured",
+            "i'm injured",
+            "bleeding",
+            "broken bone",
+            "broke my arm",
+            "broke my leg",
+            "can't breathe",
+            "cannot breathe",
+            "severe pain",
+            "badly hurt",
+            "seriously hurt",
+        ],
+    ):
+        return "accident_injury"
+
+    # --------------------------------------------------------
+    # SELF-HARM / SUICIDE
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "kill myself",
+            "killing myself",
+            "suicide",
+            "want to die",
+            "wish i was dead",
+            "wish i were dead",
+            "end my life",
+            "hurt myself",
+            "harm myself",
+            "self harm",
+            "self-harm",
+        ],
+    ):
+        return "self_harm"
+
+    # --------------------------------------------------------
+    # BULLYING
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "bully",
+            "bullied",
+            "bullying",
+            "being bullied",
+            "they keep hitting me",
+            "they hit me",
+            "people make fun of me",
+            "they make fun of me",
+            "they laugh at me",
+            "they pick on me",
+            "picked on",
+            "harassing me",
+            "harassed me",
+        ],
+    ):
+        return "bullying"
+
+    # --------------------------------------------------------
+    # FRIENDSHIP
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "best friend",
+            "my friend",
+            "my friends",
+            "friend stopped",
+            "friends stopped",
+            "friend ignored",
+            "friends ignored",
+            "friend left me",
+            "friends left me",
+            "friend betrayed",
+            "friendship",
+            "they don't talk to me",
+            "they stopped talking",
+        ],
+    ):
+        return "friendship"
+
+    # --------------------------------------------------------
+    # FAMILY
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "my mom",
+            "my mum",
+            "my mother",
+            "my dad",
+            "my father",
+            "my parents",
+            "my brother",
+            "my sister",
+            "my family",
+            "family problem",
+            "family problems",
+            "parents fighting",
+            "mom and dad fighting",
+        ],
+    ):
+        return "family"
+
+    # --------------------------------------------------------
+    # SCHOOL
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "school",
+            "exam",
+            "exams",
+            "test",
+            "tests",
+            "homework",
+            "assignment",
+            "teacher",
+            "class",
+            "grades",
+            "marks",
+            "school work",
+        ],
+    ):
+        return "school"
+
+    # --------------------------------------------------------
+    # LONELINESS
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "lonely",
+            "alone",
+            "nobody cares",
+            "no one cares",
+            "no friends",
+            "have no friends",
+            "feel left out",
+            "left out",
+            "isolated",
+        ],
+    ):
+        return "loneliness"
+
+    # --------------------------------------------------------
+    # ANXIETY / STRESS
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "stressed",
+            "stress",
+            "anxious",
+            "anxiety",
+            "worried",
+            "worrying",
+            "nervous",
+            "panic",
+            "overwhelmed",
+            "too much pressure",
+            "pressure",
+        ],
+    ):
+        return "stress"
+
+    # --------------------------------------------------------
+    # ANGER
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "angry",
+            "mad",
+            "furious",
+            "rage",
+            "annoyed",
+            "annoying me",
+            "pissed off",
+        ],
+    ):
+        return "anger"
+
+    # --------------------------------------------------------
+    # SADNESS
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "sad",
+            "crying",
+            "cry",
+            "upset",
+            "heartbroken",
+            "hurt",
+            "feeling down",
+            "feel down",
+        ],
+    ):
+        return "sadness"
+
+    # --------------------------------------------------------
+    # TIREDNESS
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "tired",
+            "exhausted",
+            "sleepy",
+            "no energy",
+            "can't sleep",
+            "cannot sleep",
+            "not sleeping",
+        ],
+    ):
+        return "tiredness"
+
+    # --------------------------------------------------------
+    # POSITIVE EVENT
+    # --------------------------------------------------------
+
+    if contains_any(
+        text,
+        [
+            "won",
+            "winning",
+            "passed",
+            "birthday",
+            "got an award",
+            "got a prize",
+            "promoted",
+            "good news",
+            "great news",
+            "best day",
+            "amazing day",
+            "really happy",
+            "so happy",
+        ],
+    ):
+        return "positive"
+
+    return None
+
+
+# ============================================================
+# SAFETY DETECTOR
+# ============================================================
+
+def is_immediate_danger(text):
+
+    text = text.lower()
+
+    return contains_any(
+        text,
+        [
+            "still in danger",
+            "someone is attacking me",
+            "someone is hurting me",
+            "being attacked",
+            "attacking me",
+            "can't breathe",
+            "cannot breathe",
+            "bleeding badly",
+            "bleeding a lot",
+            "unconscious",
+        ],
+    )
+
+
+# ============================================================
+# SITUATION-AWARE RESPONSE ENGINE
 # ============================================================
 
 def generate_response(user_text, emotion, history):
@@ -120,310 +433,307 @@ def generate_response(user_text, emotion, history):
     text = clean_text(user_text)
     lower = text.lower()
 
+    situation = detect_situation(text)
+
     # --------------------------------------------------------
-    # SERIOUS DISTRESS
+    # SELF-HARM
     # --------------------------------------------------------
 
-    serious_words = [
-        "kill myself",
-        "suicide",
-        "want to die",
-        "hurt myself",
-        "self harm",
-        "self-harm",
-    ]
+    if situation == "self_harm":
 
-    if contains_any(lower, serious_words):
+        st.session_state.safety_mode = True
 
         return (
             "I'm really sorry you're dealing with something "
-            "this heavy. Please don't handle it alone. "
-            "Consider talking to a parent, teacher, counselor, "
-            "or another trusted person who can support you."
+            "this painful. 💙 I'm glad you told me instead of "
+            "keeping it to yourself. Please don't stay alone "
+            "with these feelings. Is there a trusted adult, "
+            "family member, teacher, counselor, or friend "
+            "you can be with right now?"
         )
 
     # --------------------------------------------------------
-    # SCHOOL
+    # ACCIDENT / INJURY
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "school",
-            "exam",
-            "test",
-            "homework",
-            "teacher",
-            "class",
-            "grade",
-            "marks",
-            "assignment",
-        ],
-    ):
+    if situation == "accident_injury":
+
+        st.session_state.safety_mode = True
+
+        if not st.session_state.asked_safety_question:
+
+            st.session_state.asked_safety_question = True
+
+            return (
+                "I'm really sorry that happened to you. 💙 "
+                "Being hit by a car can be very serious. "
+                "Are you safe right now, and are you injured "
+                "or still in danger?"
+            )
+
+        if is_immediate_danger(text):
+
+            return (
+                "Your safety comes first right now. Please "
+                "get the attention of a nearby trusted adult "
+                "or emergency help immediately. Don't worry "
+                "about continuing the conversation with me "
+                "until you're safe."
+            )
 
         return (
-            "School pressure can definitely affect how we feel. "
-            "What happened today that bothered you the most?"
+            "That sounds frightening. I'm glad you're able "
+            "to talk about it. If you're injured, please make "
+            "sure a trusted adult or medical professional "
+            "knows what happened. If you're safe, you can "
+            "tell me what happened next."
         )
 
     # --------------------------------------------------------
-    # FRIENDS
+    # BULLYING
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "friend",
-            "friends",
-            "best friend",
-            "ignored me",
-            "ignore me",
-            "left me",
-            "excluded me",
-            "group",
-        ],
-    ):
+    if situation == "bullying":
 
         return (
-            "That sounds difficult, especially when friends "
-            "are involved. Do you think they knew how their "
-            "actions made you feel?"
+            "I'm sorry you're being treated that way. 💙 "
+            "You don't deserve to be bullied. If this is "
+            "happening at school, telling a teacher, counselor, "
+            "parent, or another trusted adult can help. "
+            "Do you feel safe around the person who is "
+            "bullying you?"
+        )
+
+    # --------------------------------------------------------
+    # FRIENDSHIP
+    # --------------------------------------------------------
+
+    if situation == "friendship":
+
+        return (
+            "That can really hurt, especially when it's "
+            "someone you care about. 💙 What happened "
+            "between you and your friend?"
         )
 
     # --------------------------------------------------------
     # FAMILY
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "mom",
-            "mum",
-            "mother",
-            "dad",
-            "father",
-            "parent",
-            "parents",
-            "brother",
-            "sister",
-            "family",
-        ],
-    ):
+    if situation == "family":
 
         return (
-            "Family situations can be complicated. 💙 "
-            "Would you like to tell me a little more about "
-            "what happened?"
+            "Family problems can be really difficult because "
+            "you can't always just walk away from them. 💙 "
+            "What happened at home?"
         )
 
     # --------------------------------------------------------
-    # TIRED
+    # SCHOOL
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "tired",
-            "sleep",
-            "sleepy",
-            "exhausted",
-            "no energy",
-            "energy",
-        ],
-    ):
+    if situation == "school":
 
         return (
-            "It sounds like you might really need some time "
-            "to recharge. Have you been getting enough rest "
-            "lately?"
+            "School pressure can definitely affect how you "
+            "feel. 📚 What part of school is bothering you "
+            "the most right now?"
         )
 
     # --------------------------------------------------------
-    # ANGRY
+    # LONELINESS
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "angry",
-            "mad",
-            "annoyed",
-            "annoying",
-            "furious",
-            "rage",
-        ],
-    ):
+    if situation == "loneliness":
 
         return (
-            "It sounds like something really got under your "
-            "skin. What was the part of the situation that "
-            "made you the most angry?"
+            "Feeling alone can be really heavy. 💙 "
+            "I'm here to listen. Is it that you don't have "
+            "anyone around right now, or that you feel like "
+            "the people around you don't understand you?"
         )
 
     # --------------------------------------------------------
-    # SAD
+    # STRESS
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "sad",
-            "lonely",
-            "alone",
-            "cry",
-            "crying",
-            "upset",
-            "hurt",
-            "heartbroken",
-        ],
-    ):
+    if situation == "stress":
+
+        return (
+            "It sounds like you've got a lot on your mind. 💙 "
+            "What's the biggest thing causing the pressure "
+            "right now?"
+        )
+
+    # --------------------------------------------------------
+    # ANGER
+    # --------------------------------------------------------
+
+    if situation == "anger":
+
+        return (
+            "It sounds like something really upset you. "
+            "Before we worry about fixing it, what exactly "
+            "happened that made you angry?"
+        )
+
+    # --------------------------------------------------------
+    # SADNESS
+    # --------------------------------------------------------
+
+    if situation == "sadness":
 
         return (
             "I'm sorry you're going through that. 💙 "
-            "What do you think is making this feeling "
-            "especially strong right now?"
+            "Do you want to tell me what happened?"
         )
 
     # --------------------------------------------------------
-    # WORRY / STRESS
+    # TIREDNESS
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "stress",
-            "stressed",
-            "worried",
-            "worry",
-            "anxious",
-            "anxiety",
-            "nervous",
-            "pressure",
-        ],
-    ):
+    if situation == "tiredness":
 
         return (
-            "That sounds like a lot to carry. "
-            "Is there one particular thing you're worrying "
-            "about the most?"
+            "You sound really worn out. 😴 "
+            "Has something been keeping you from getting "
+            "enough rest, or have you just had a really "
+            "busy day?"
         )
 
     # --------------------------------------------------------
-    # HAPPY
+    # POSITIVE
     # --------------------------------------------------------
 
-    if contains_any(
-        lower,
-        [
-            "happy",
-            "great",
-            "amazing",
-            "good",
-            "excited",
-            "fun",
-            "awesome",
-            "wonderful",
-        ],
-    ):
+    if situation == "positive":
 
         return (
-            "That's nice to hear! 😊 "
-            "What happened that made your day better?"
+            "That's awesome! 😊 I'd love to hear more. "
+            "What happened?"
         )
 
-    # --------------------------------------------------------
-    # BETTER
-    # --------------------------------------------------------
+    # ========================================================
+    # CONTEXT FOLLOW-UP
+    # ========================================================
 
-    if contains_any(
-        lower,
-        [
-            "better now",
-            "feel better",
-            "feeling better",
-            "okay now",
-            "fine now",
-            "i'm okay",
-            "im okay",
-            "i am okay",
-        ],
-    ):
+    previous_topic = st.session_state.conversation_topic
+
+    if previous_topic == "accident_injury":
 
         return (
-            "I'm glad things feel a little better. 💙 "
-            "What do you think helped you feel that way?"
+            "I'm glad you're able to talk about it. 💙 "
+            "How are you feeling about what happened now?"
         )
 
-    # --------------------------------------------------------
-    # FIRST RESPONSE
-    # --------------------------------------------------------
-
-    if len(history) <= 2:
+    if previous_topic == "bullying":
 
         return (
-            "Thanks for telling me. 💙 "
-            "Can you tell me a little more about what happened?"
+            "I understand. You shouldn't have to deal with "
+            "that by yourself. Is there someone you trust "
+            "who knows what's happening?"
         )
 
-    # --------------------------------------------------------
-    # SECOND RESPONSE
-    # --------------------------------------------------------
-
-    if len(history) <= 4:
+    if previous_topic == "friendship":
 
         return (
-            "I understand. Sometimes talking about what "
-            "happened can make things a little clearer. "
-            "What do you think you need right now?"
+            "I hear you. Friend problems can take a lot out "
+            "of you. Do you want things to get better with "
+            "your friend, or do you think you need some space?"
         )
 
-    # --------------------------------------------------------
-    # LATER RESPONSES
-    # --------------------------------------------------------
+    if previous_topic == "family":
 
-    responses = [
+        return (
+            "I understand. 💙 How has this situation been "
+            "affecting you personally?"
+        )
 
-        (
-            "That makes sense. 💙 "
-            "If you could change one thing about what "
-            "happened, what would it be?"
-        ),
+    if previous_topic == "school":
 
-        (
-            "Thanks for being honest with me. "
-            "Do you feel like this is something you can "
-            "work through yourself, or would talking to "
-            "someone you trust help?"
-        ),
+        return (
+            "That sounds stressful. What would make the "
+            "school situation a little easier for you?"
+        )
 
-        (
-            "I hear you. "
-            "What do you think would make the situation "
-            "feel a little easier right now?"
-        ),
+    if previous_topic == "loneliness":
 
-        (
-            "That's understandable. "
-            "Has this been bothering you for a while, "
-            "or did it happen recently?"
-        ),
-    ]
+        return (
+            "I'm listening. 💙 What would make you feel "
+            "less alone right now?"
+        )
 
-    index = (
-        st.session_state.conversation_count
-        % len(responses)
+    if previous_topic == "stress":
+
+        return (
+            "Let's take it one step at a time. "
+            "Which part of the situation feels hardest "
+            "to deal with?"
+        )
+
+    # ========================================================
+    # EMOTION-SPECIFIC FALLBACK
+    # ========================================================
+
+    if emotion == "sad":
+
+        return (
+            "I'm listening. 💙 You don't have to explain "
+            "everything perfectly. What happened?"
+        )
+
+    if emotion == "angry":
+
+        return (
+            "It sounds like something really bothered you. "
+            "What happened?"
+        )
+
+    if emotion == "fear":
+
+        return (
+            "You seem to be dealing with something "
+            "frightening. What happened?"
+        )
+
+    if emotion == "happy":
+
+        return (
+            "You seem to have something positive going on. 😊 "
+            "What's making you feel good?"
+        )
+
+    if emotion == "surprise":
+
+        return (
+            "Something seems to have caught you off guard. "
+            "What happened?"
+        )
+
+    # ========================================================
+    # GENERIC FALLBACK
+    # ========================================================
+
+    if word_count(text) <= 3:
+
+        return (
+            "I'm listening. 💙 Can you tell me a little more "
+            "about that?"
+        )
+
+    return (
+        "I understand. 💙 Tell me a little more about what "
+        "happened and how it made you feel."
     )
-
-    return responses[index]
 
 
 # ============================================================
-# RESET FUNCTION
+# RESET
 # ============================================================
 
 def reset_app():
 
     for key in DEFAULTS:
+
         if key in st.session_state:
             del st.session_state[key]
 
@@ -445,8 +755,8 @@ if st.session_state.stage == "welcome":
     st.write(
         """
         EmotiCare uses AI to estimate your visible facial
-        expression and guides you through a short conversation
-        about how you're feeling.
+        expression and then gives you a chance to explain
+        how you actually feel.
         """
     )
 
@@ -459,10 +769,9 @@ if st.session_state.stage == "welcome":
 
     st.warning(
         """
-        ⚠️ The camera cannot know exactly how you feel.
-
-        It only estimates the facial expression visible in
-        the photo. Your own explanation is more important.
+        ⚠️ Facial-expression AI is only an estimate.
+        It cannot truly know what someone is feeling.
+        Your own answer is more important than the camera.
         """
     )
 
@@ -521,7 +830,7 @@ elif st.session_state.stage == "first_scan":
 
                 emotion, confidence = analyze_emotion(
                     photo,
-                    emotion_model,
+                    emotion_model
                 )
 
                 if emotion is None:
@@ -540,7 +849,7 @@ elif st.session_state.stage == "first_scan":
 
                     emoji = EMOTION_EMOJIS.get(
                         emotion,
-                        "🙂",
+                        "🙂"
                     )
 
                     st.success(
@@ -564,7 +873,7 @@ elif st.session_state.stage == "first_scan":
 
                         if st.button(
                             "✅ Yes",
-                            use_container_width=True,
+                            use_container_width=True
                         ):
 
                             st.session_state.actual_emotion = (
@@ -581,7 +890,7 @@ elif st.session_state.stage == "first_scan":
 
                         if st.button(
                             "❌ No",
-                            use_container_width=True,
+                            use_container_width=True
                         ):
 
                             st.session_state.stage = (
@@ -630,13 +939,13 @@ elif st.session_state.stage == "correct_emotion":
 
     selected = st.selectbox(
         "How are you feeling?",
-        choices,
+        choices
     )
 
     if st.button(
         "Continue 💙",
         use_container_width=True,
-        type="primary",
+        type="primary"
     ):
 
         st.session_state.actual_emotion = (
@@ -658,7 +967,7 @@ elif st.session_state.stage == "conversation":
 
     emoji = EMOTION_EMOJIS.get(
         emotion,
-        "💙",
+        "💙"
     )
 
     st.title("💬 Talk to EmotiCare")
@@ -668,7 +977,7 @@ elif st.session_state.stage == "conversation":
     )
 
     # --------------------------------------------------------
-    # INITIAL MESSAGE
+    # INITIAL QUESTION
     # --------------------------------------------------------
 
     if len(st.session_state.messages) == 0:
@@ -683,12 +992,12 @@ elif st.session_state.stage == "conversation":
         st.session_state.messages.append(
             {
                 "role": "assistant",
-                "content": opening,
+                "content": opening
             }
         )
 
     # --------------------------------------------------------
-    # DISPLAY MESSAGES
+    # DISPLAY CHAT
     # --------------------------------------------------------
 
     for message in st.session_state.messages:
@@ -711,18 +1020,11 @@ elif st.session_state.stage == "conversation":
 
     # --------------------------------------------------------
     # CHAT FORM
-    #
-    # IMPORTANT:
-    # We use clear_on_submit=True instead of changing
-    # st.session_state.user_input manually.
-    #
-    # This fixes the Streamlit 1.22 error:
-    # "cannot be modified after the widget ... is instantiated"
     # --------------------------------------------------------
 
     with st.form(
         "chat_form",
-        clear_on_submit=True,
+        clear_on_submit=True
     ):
 
         user_message = st.text_input(
@@ -731,7 +1033,7 @@ elif st.session_state.stage == "conversation":
 
         send = st.form_submit_button(
             "Send 💬",
-            use_container_width=True,
+            use_container_width=True
         )
 
     if send:
@@ -742,10 +1044,22 @@ elif st.session_state.stage == "conversation":
 
         if user_message:
 
+            # Detect the actual situation BEFORE generating
+            # the reply.
+            detected_topic = detect_situation(
+                user_message
+            )
+
+            if detected_topic is not None:
+
+                st.session_state.conversation_topic = (
+                    detected_topic
+                )
+
             st.session_state.messages.append(
                 {
                     "role": "user",
-                    "content": user_message,
+                    "content": user_message
                 }
             )
 
@@ -754,13 +1068,13 @@ elif st.session_state.stage == "conversation":
             response = generate_response(
                 user_message,
                 emotion,
-                st.session_state.messages,
+                st.session_state.messages
             )
 
             st.session_state.messages.append(
                 {
                     "role": "assistant",
-                    "content": response,
+                    "content": response
                 }
             )
 
@@ -773,7 +1087,7 @@ elif st.session_state.stage == "conversation":
             )
 
     # --------------------------------------------------------
-    # FINISH CHECK-IN
+    # FINISH
     # --------------------------------------------------------
 
     st.divider()
@@ -785,7 +1099,7 @@ elif st.session_state.stage == "conversation":
     if st.button(
         "💙 How do you feel now?",
         use_container_width=True,
-        type="primary",
+        type="primary"
     ):
 
         st.session_state.stage = "second_scan"
@@ -805,8 +1119,8 @@ elif st.session_state.stage == "second_scan":
         """
         Take another photo.
 
-        EmotiCare will make a second estimate so we can
-        compare the visible expression with your first scan.
+        EmotiCare will make another facial-expression
+        estimate so you can compare the two check-ins.
         """
     )
 
@@ -830,7 +1144,7 @@ elif st.session_state.stage == "second_scan":
 
                 emotion, confidence = analyze_emotion(
                     photo,
-                    emotion_model,
+                    emotion_model
                 )
 
                 if emotion is None:
@@ -841,9 +1155,7 @@ elif st.session_state.stage == "second_scan":
 
                 else:
 
-                    st.session_state.second_emotion = (
-                        emotion
-                    )
+                    st.session_state.second_emotion = emotion
 
                     st.session_state.second_confidence = (
                         confidence
@@ -911,8 +1223,8 @@ elif st.session_state.stage == "result":
             f"""
             The AI estimated **{second}** in both photos.
 
-            This does not necessarily mean you feel the same,
-            because facial-expression AI can be inaccurate.
+            That doesn't necessarily mean you feel the same.
+            Facial-expression AI can make mistakes.
             """
         )
 
@@ -926,7 +1238,7 @@ elif st.session_state.stage == "result":
         )
 
     # --------------------------------------------------------
-    # FINAL HUMAN CHECK
+    # HUMAN CHECK
     # --------------------------------------------------------
 
     st.subheader(
@@ -939,14 +1251,14 @@ elif st.session_state.stage == "result":
             "😊 I feel better",
             "🙂 I feel a little better",
             "😐 I feel about the same",
-            "😔 I still don't feel good",
-        ],
+            "😔 I still don't feel good"
+        ]
     )
 
     if st.button(
         "Finish 💙",
         use_container_width=True,
-        type="primary",
+        type="primary"
     ):
 
         st.session_state.final_feeling = (
@@ -1018,7 +1330,7 @@ elif st.session_state.stage == "goodbye":
 
     if st.button(
         "🔄 Start Again",
-        use_container_width=True,
+        use_container_width=True
     ):
 
         reset_app()
